@@ -52,29 +52,31 @@ const remoteTracks = {};
  * Handles local tracks.
  * @param tracks Array with JitsiTrack objects
  */
-function onLocalTracks(tracks) {
+function onLocalTracks (tracks) {
     localTracks = tracks;
     for (let i = 0; i < localTracks.length; i++) {
         localTracks[i].addEventListener(
             JitsiMeetJS.events.track.TRACK_AUDIO_LEVEL_CHANGED,
-            audioLevel => console.log(`Audio Level local: ${audioLevel}`));
+            audioLevel => console.log(`Audio Level local: ${audioLevel}`)
+        );
         localTracks[i].addEventListener(
             JitsiMeetJS.events.track.TRACK_MUTE_CHANGED,
-            () => console.log('local track muted'));
+            () => console.log('local track muted')
+        );
         localTracks[i].addEventListener(
             JitsiMeetJS.events.track.LOCAL_TRACK_STOPPED,
-            () => console.log('local track stoped'));
+            () => console.log('local track stoped')
+        );
         localTracks[i].addEventListener(
             JitsiMeetJS.events.track.TRACK_AUDIO_OUTPUT_CHANGED,
-            deviceId =>
-                console.log(
-                    `track audio output device was changed to ${deviceId}`));
+            deviceId => console.log(`track audio output device was changed to ${deviceId}`)
+        );
+
         if (localTracks[i].getType() === 'video') {
             $('body').append(`<video autoplay='1' id='localVideo${i}' />`);
             localTracks[i].attach($(`#localVideo${i}`)[0]);
         } else {
-            $('body').append(
-                `<audio autoplay='1' muted='true' id='localAudio${i}' />`);
+            $('body').append(`<audio autoplay='1' muted='true' id='localAudio${i}' />`);
             localTracks[i].attach($(`#localAudio${i}`)[0]);
         }
         if (isJoined) {
@@ -100,17 +102,20 @@ function onRemoteTrack(track) {
 
     track.addEventListener(
         JitsiMeetJS.events.track.TRACK_AUDIO_LEVEL_CHANGED,
-        audioLevel => console.log(`Audio Level remote: ${audioLevel}`));
+        audioLevel => console.log(`Audio Level remote: ${audioLevel}`)
+    );
     track.addEventListener(
         JitsiMeetJS.events.track.TRACK_MUTE_CHANGED,
-        () => console.log('remote track muted'));
+        () => console.log('remote track muted')
+    );
     track.addEventListener(
         JitsiMeetJS.events.track.LOCAL_TRACK_STOPPED,
-        () => console.log('remote track stoped'));
-    track.addEventListener(JitsiMeetJS.events.track.TRACK_AUDIO_OUTPUT_CHANGED,
-        deviceId =>
-            console.log(
-                `track audio output device was changed to ${deviceId}`));
+        () => console.log('remote track stoped')
+    );
+    track.addEventListener(
+        JitsiMeetJS.events.track.TRACK_AUDIO_OUTPUT_CHANGED,
+        deviceId => console.log(`track audio output device was changed to ${deviceId}`)
+    );
     const id = participant + track.getType() + idx;
 
     if (track.getType() === 'video') {
@@ -121,33 +126,6 @@ function onRemoteTrack(track) {
             `<audio autoplay='1' id='${participant}audio${idx}' />`);
     }
     track.attach($(`#${id}`)[0]);
-}
-
-/**
- * That function is executed when the conference is joined
- */
-function onConferenceJoined() {
-    console.log('conference joined!');
-    isJoined = true;
-    for (let i = 0; i < localTracks.length; i++) {
-        room.addTrack(localTracks[i]);
-    }
-}
-
-/**
- *
- * @param id
- */
-function onUserLeft(id) {
-    console.log('user left');
-    if (!remoteTracks[id]) {
-        return;
-    }
-    const tracks = remoteTracks[id];
-
-    for (let i = 0; i < tracks.length; i++) {
-        tracks[i].detach($(`#${id}${tracks[i].getType()}`));
-    }
 }
 
 /**
@@ -165,61 +143,77 @@ function onConnectionSuccess() {
     room.on(JitsiMeetJS.events.conference.TRACK_REMOVED, track => {
         console.log(`track removed!!!${track}`);
     });
+
     room.on(
         JitsiMeetJS.events.conference.CONFERENCE_JOINED,
-        onConferenceJoined);
+        () => {
+            console.log('conference joined!');
+            isJoined = true;
+            for (let i = 0; i < localTracks.length; i++) {
+                room.addTrack(localTracks[i]);
+            }
+        }
+    );
+
     room.on(JitsiMeetJS.events.conference.USER_JOINED, id => {
         console.log('user join');
         remoteTracks[id] = [];
     });
-    room.on(JitsiMeetJS.events.conference.USER_LEFT, onUserLeft);
+
+    room.on(JitsiMeetJS.events.conference.USER_LEFT, id => {
+        console.log('user left');
+        if (!remoteTracks[id]) {
+            return;
+        }
+        const tracks = remoteTracks[id];
+    
+        for (let i = 0; i < tracks.length; i++) {
+            tracks[i].detach($(`#${id}${tracks[i].getType()}`));
+        }
+    });
+
     room.on(JitsiMeetJS.events.conference.TRACK_MUTE_CHANGED, track => {
         console.log(`${track.getType()} - ${track.isMuted()}`);
     });
     room.on(
         JitsiMeetJS.events.conference.DISPLAY_NAME_CHANGED,
-        (userID, displayName) => console.log(`${userID} - ${displayName}`));
+        (userID, displayName) => console.log(`${userID} - ${displayName}`)
+    );
     room.on(
         JitsiMeetJS.events.conference.TRACK_AUDIO_LEVEL_CHANGED,
-        (userID, audioLevel) => console.log(`${userID} - ${audioLevel}`));
+        (userID, audioLevel) => console.log(`${userID} - ${audioLevel}`)
+    );
     room.on(
         JitsiMeetJS.events.conference.PHONE_NUMBER_CHANGED,
-        () => console.log(`${room.getPhoneNumber()} - ${room.getPhonePin()}`));
+        () => console.log(`${room.getPhoneNumber()} - ${room.getPhonePin()}`)
+    );
     room.join();
 }
 
 /**
  * This function is called when the connection fail.
  */
-function onConnectionFailed(e) {
-    console.log("reason e =", e);
-    for (let i = 0; i < 100; i++) {
-        console.error("Connection failed!")
-    }
-    console.error('Connection Failed!');
-}
-
-/**
- * This function is called when the connection fail.
- */
-function onDeviceListChanged(devices) {
-    console.info('current devices', devices);
+function onConnectionFailed (e) {
+    console.error("Connection failed, error =", e)
 }
 
 /**
  * This function is called when we disconnect.
  */
 function disconnect() {
-    console.log('disconnect!');
+    console.log("disconnect()");
     connection.removeEventListener(
         JitsiMeetJS.events.connection.CONNECTION_ESTABLISHED,
-        onConnectionSuccess);
+        onConnectionSuccess
+    );
     connection.removeEventListener(
         JitsiMeetJS.events.connection.CONNECTION_FAILED,
-        onConnectionFailed);
+        onConnectionFailed
+    );
     connection.removeEventListener(
         JitsiMeetJS.events.connection.CONNECTION_DISCONNECTED,
-        disconnect);
+        disconnect
+    );
 }
 
 /**
@@ -283,17 +277,21 @@ connection = new JitsiMeetJS.JitsiConnection(null, null, options);
 
 connection.addEventListener(
     JitsiMeetJS.events.connection.CONNECTION_ESTABLISHED,
-    onConnectionSuccess);
+    onConnectionSuccess
+);
 connection.addEventListener(
     JitsiMeetJS.events.connection.CONNECTION_FAILED,
-    onConnectionFailed);
+    onConnectionFailed
+);
 connection.addEventListener(
     JitsiMeetJS.events.connection.CONNECTION_DISCONNECTED,
-    disconnect);
+    disconnect
+);
 
 JitsiMeetJS.mediaDevices.addEventListener(
     JitsiMeetJS.events.mediaDevices.DEVICE_LIST_CHANGED,
-    onDeviceListChanged);
+    (devices) => console.info('current devices', devices)
+);
 
 connection.connect();
 
