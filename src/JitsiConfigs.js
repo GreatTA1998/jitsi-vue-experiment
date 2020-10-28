@@ -55,6 +55,8 @@ export const connectionConfigRelm = {
   clientNode: 'http://jitsi.org/jitsimeet'
 };
 
+// alternative config: https://community.jitsi.org/t/how-to-enter-video-and-audio-off/72817/4
+
 // BELOW ARE SOME MODIFIED CODE TAKEN FROM Example.js from lib-jisti-meet's cloned repository
 // const options = {
 

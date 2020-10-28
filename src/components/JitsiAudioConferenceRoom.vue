@@ -2,10 +2,17 @@
   <div>
     <h1>JITSI AUDIO CONFERENCE PLAYGROUND</h1>
     <p>otherUsers: {{ otherUsers }}</p>
+    <!-- <p>myLocalTracks: {{ myLocalTracks }}</p> -->
+
+    <!-- TODO: implement these buttons -->
+    <button @click="toggleMic()">Toggle mute</button>
+    <button @click="toggleCamera()">Toggle camera</button>
+    <button @click="toggleScreen()">Toggle screenshare</button>
+
     <button @click="unload()">Unload</button>
     <button @click="switchVideo()">Switch video</button>
 
-    <div id="myAudioVideoTracks">
+    <div id="myLocalTracks">
 
     </div>
 
@@ -30,6 +37,9 @@
  * Built upon the lib-jisti-meet API, thiis is an audio conference room that supports basic functionalities such as mute/unmute, video share/unshare, screenshare
  * and the ability to detect the dominant speaker. 
  * 
+ * Connection
+ *   - used to create conference rooms
+ * 
  * TODO: 
  *   1. Make the `connection` object an instance variable i.e `this.connection` rather than a global variable 
  *   2. Now that everything is translated into Vue, display the state correctly e.g. muted, video, participants
@@ -38,9 +48,10 @@
  *   5. I estimate that it'll take 1 week, but after that the cost of running Explain will be free
  * 
  * FIXME:
+ *   Cannot mute: even when I manually set the "mute" attributes of all audio elements to true, there is still an echo when two tabs are opened
+ *   When switching from sharing video to sharing screen, something stops. FIX: create a simple method for sharing video (ignore screenshare) 
  *   A user sometimes shares two identical video tracks and two identical audio tracks. They should only share one of each. 
- *   How to clean up the conference room? Sometimes, there will be lots of dead tracks in the room and the participants didn't "leave". 
- *   How do I prevent ghosts from entering? 
+ *   How do I prevent ghosts from entering? FIX: don't reload using localhost:8080, as the destroyed hook is not properly called
  *   How can I get a reliable answer on how the reliability of Jitsi will change over the years? 
  * 
  * @see https://github.com/jitsi/lib-jitsi-meet/blob/master/doc/API.md
@@ -49,7 +60,6 @@
 import { initConfigStandard, getConnectionConfigNikita, conferenceConfigStandard } from "@/JitsiConfigs.js"; 
 
 let isVideo = true;
-let connection = null;
 let isJoined = false;
 let room = null;
 let localTracks = [];
@@ -59,14 +69,19 @@ export default {
   name: "JitsiAudioConferenceRoom",
   data () {
     return {
-      otherUsers: []
+      myLocalTracks: {
+        audio: null,
+        video: null
+      },
+      isMicOn: false,
+      isCameraOn: false,
+      otherUsers: [],
+      jitsiConnector: null
     };
   },
   created () {
     // step 1/4: initialize the global JitsiMeetObject
-    console.log("JitsiMeetJS.logLevels =", JitsiMeetJS.logLevels);
-    const isThisAPromise = JitsiMeetJS.setLogLevel(JitsiMeetJS.logLevels.ERROR); 
-    console.log("isThisAPromise =", isThisAPromise);
+    JitsiMeetJS.setLogLevel(JitsiMeetJS.logLevels.ERROR); 
     JitsiMeetJS.init(initConfigStandard); 
 
     // TODO: clean-up the event listeners
@@ -76,39 +91,51 @@ export default {
     );
 
     // step 2/4: initalize a connection object
-    connection = new JitsiMeetJS.JitsiConnection(null, null, getConnectionConfigNikita("put-room-id-here"));
-    const { events } = JitsiMeetJS; 
-    connection.addEventListener(events.connection.CONNECTION_ESTABLISHED, this.onConnectionSuccess);
-    connection.addEventListener(events.connection.CONNECTION_FAILED, this.onConnectionFailed);
-    connection.addEventListener(events.connection.CONNECTION_DISCONNECTED, this.onDisconnect);
-    connection.connect(); // doesn't seem to return a promise
+    this.jitsiConnector = new JitsiMeetJS.JitsiConnection(null, null, getConnectionConfigNikita("put-room-id-here"));
+    const { CONNECTION_ESTABLISHED, CONNECTION_FAILED, CONNECTION_DISCONNECTED } = JitsiMeetJS.events.connection;
+    this.jitsiConnector.addEventListener(CONNECTION_ESTABLISHED, this.onConnectionSuccess);
+    this.jitsiConnector.addEventListener(CONNECTION_FAILED, this.onConnectionFailed);
+    this.jitsiConnector.addEventListener(CONNECTION_DISCONNECTED, this.onDisconnect);
+    this.jitsiConnector.connect(); // doesn't seem to return a promise
 
+    // TODO: create a new function that encapsulates the sharing of local tracks
+    // TODO: transition the global variable into an instance variable
     // step 3/4: create local tracks and share them FIXME: has race conditions
+    // FIXME: createLocalTracks sometimes produces 2 audio tracks and 2 video tracks, instead of 1 each
     JitsiMeetJS.createLocalTracks({ devices: ['audio', 'video'] }) 
       .then(tracks => { // @param tracks Array with JitsiTrack objects
         localTracks = tracks;
-        for (let i = 0; i < localTracks.length; i++) {
+        for (const track of localTracks) {
+          if (track.getType() === "audio") {
+            this.$set(this.myLocalTracks, "audio", track);
+          } else {
+            this.$set(this.myLocalTracks, "video", track);
+          }
+
+          // NOTE: the event listeners for handling local muting is not necessary because of the use of 
+          // async await in `toggleMute()` method near the bottom of the file
+          //
           // set-up event handlers
-          const { track } = JitsiMeetJS.events; 
-          localTracks[i].addEventListener(track.TRACK_MUTE_CHANGED, () => 
-            console.log('local track muted')
-          );
-          localTracks[i].addEventListener(track.LOCAL_TRACK_STOPPED, () => 
-            console.log('local track stoped')
-          );
+          // const { TRACK_MUTE_CHANGED, LOCAL_TRACK_STOPPED } = JitsiMeetJS.events.track; 
+          // track.addEventListener(TRACK_MUTE_CHANGED, () => 
+          //   console.log('local track muted')
+          // );
+          // track.addEventListener(LOCAL_TRACK_STOPPED, () => 
+          //   console.log('local track stoped')
+          // );
 
           // attach to DOM
-          if (localTracks[i].getType() === 'video') {
-            $('#myAudioVideoTracks').append(`<video autoplay='true' id='localVideo${i}' style="width: 300px; height: 300px;"/>`);
-            localTracks[i].attach($(`#localVideo${i}`)[0]);
+          if (track.getType() === 'video') {
+            $('#myLocalTracks').append(`<video autoplay='true' id='localVideo' style="width: 300px; height: 300px;"/>`);
+            track.attach($(`#localVideo`)[0]);
           } else {
-            $('#myAudioVideoTracks').append(`<audio autoplay='true' muted='true' id='localAudio${i}' />`);
-            localTracks[i].attach($(`#localAudio${i}`)[0]);
+            $('#myLocalTracks').append(`<audio autoplay='true' muted='true' id='localAudio'/>`);
+            track.attach($(`#localAudio`)[0]);
           }
 
           // FIXME: race condition
           if (isJoined) {
-            room.addTrack(localTracks[i]);
+            room.addTrack(track);
           }
         }
       })
@@ -136,7 +163,8 @@ export default {
   },
   methods: {
     onConnectionSuccess () {
-      room = connection.initJitsiConference("conference", conferenceConfigStandard);
+      // question: what happenes to `initJitsiConference` if the conference exists already
+      room = this.jitsiConnector.initJitsiConference("conference", conferenceConfigStandard);
       
       // PART 1/2: set up event listeners
       const { conference } = JitsiMeetJS.events; 
@@ -152,14 +180,11 @@ export default {
         const idx = remoteTracks[participantID].push(track);
 
         // set-up event handlers 
-        const { events } = JitsiMeetJS; // cannot destructure track because its already declared as a variable)
-        track.addEventListener(events.track.TRACK_AUDIO_LEVEL_CHANGED, (audioLevel) => 
-          console.log(`Audio Level remote: ${audioLevel}`)
-        );
-        track.addEventListener(events.track.TRACK_MUTE_CHANGED, () => 
+        const { TRACK_MUTE_CHANGED, LOCAL_TRACK_STOPPED } = JitsiMeetJS.events.track; // cannot destructure track because its already declared as a variable)
+        track.addEventListener(TRACK_MUTE_CHANGED, () => 
           console.log('remote track muted')
         );
-        track.addEventListener(events.track.LOCAL_TRACK_STOPPED, () => 
+        track.addEventListener(LOCAL_TRACK_STOPPED, () => 
           console.log('remote track stoped')
         );
         
@@ -187,15 +212,13 @@ export default {
       // depending on the value of isJoined
       room.on(conference.CONFERENCE_JOINED, () => {
         isJoined = true;
-        for (let i = 0; i < localTracks.length; i++) {
-          room.addTrack(localTracks[i]);
+        for (const track of localTracks) {
+          room.addTrack(track);
         }
       });
 
       room.on(conference.USER_JOINED, (userID) => {
-        console.log("user joined with id =", userID); 
         this.otherUsers.push(userID);
-        // this.otherParticipants.push(id); 
         remoteTracks[userID] = [];
       });
 
@@ -222,40 +245,41 @@ export default {
       room.join();
     },
     onDisconnect () {
-      const { events } = JitsiMeetJS; 
-      connection.removeEventListener(events.connection.CONNECTION_ESTABLISHED, this.onConnectionSuccess);
-      connection.removeEventListener(events.connection.CONNECTION_FAILED, this.onConnectionFailed);
-      connection.removeEventListener(events.connection.CONNECTION_DISCONNECTED, this.onDisconnect);
+      const { CONNECTION_ESTABLISHED, CONNECTION_FAILED, CONNECTION_DISCONNECTED } = JitsiMeetJS.events.connection; 
+      this.jitsiConnector.removeEventListener(CONNECTION_ESTABLISHED, this.onConnectionSuccess);
+      this.jitsiConnector.removeEventListener(CONNECTION_FAILED, this.onConnectionFailed);
+      this.jitsiConnector.removeEventListener(CONNECTION_DISCONNECTED, this.onDisconnect);
     },
     unload () {
-      for (let i = 0; i < localTracks.length; i++) {
-        localTracks[i].dispose();
+      for (const track of localTracks) {
+        track.dispose(); 
       }
       room.leave();
-      connection.disconnect();
+      this.jitsiConnector.disconnect();
     },  
-    switchVideo () { 
+    async switchVideo () { 
       isVideo = !isVideo;
-      if (localTracks[1]) {
-        localTracks[1].dispose();
-        localTracks.pop();
+      // if (localTracks[1]) {
+      //   localTracks[1].dispose();
+      //   localTracks.pop();
+      // }
+      try {
+        const tracks = await JitsiMeetJS.createLocalTracks({
+          devices: [ isVideo ? 'video' : 'desktop' ]
+        }); 
+        const { TRACK_MUTE_CHANGED, LOCAL_TRACK_STOPPED } = JitsiMeetJS.events.track; 
+        localTracks.push(tracks[0]);
+        localTracks[1].addEventListener(TRACK_MUTE_CHANGED, () => 
+          console.log('local track muted')
+        );
+        localTracks[1].addEventListener(LOCAL_TRACK_STOPPED, () => 
+          console.log('local track stopped')
+        );
+        localTracks[1].attach($('#localVideo1')[0]);
+        room.addTrack(localTracks[1]);
+      } catch (error) {
+        console.log(error);
       }
-      JitsiMeetJS.createLocalTracks({
-        devices: [ isVideo ? 'video' : 'desktop' ]
-      })
-        .then(tracks => {
-          const { TRACK_MUTE_CHANGED, LOCAL_TRACK_STOPPED } = JitsiMeetJS.events.track; 
-          localTracks.push(tracks[0]);
-          localTracks[1].addEventListener(TRACK_MUTE_CHANGED, () => 
-            console.log('local track muted')
-          );
-          localTracks[1].addEventListener(LOCAL_TRACK_STOPPED, () => 
-            console.log('local track stoped')
-          );
-          localTracks[1].attach($('#localVideo1')[0]);
-          room.addTrack(localTracks[1]);
-        })
-        .catch(error => console.log(error));
     },
     /**
      * @param {string} selectedDevice the ID of the output device the user selected from the dropdown menu
@@ -266,6 +290,26 @@ export default {
     },
     onConnectionFailed (e) {
       console.error("Connection Failed e =", e);
+    },
+    async toggleMic () {
+      console.log("myLocalTracks.audio =", this.myLocalTracks.audio);
+      if (this.isMicOn) {
+        console.log("muting");
+        await this.myLocalTracks.audio.mute(); 
+        console.log("muted");
+        this.isMicOn = false; 
+      } else {
+        console.log("unmuting");
+        await this.myLocalTracks.audio.unmute(); 
+        this.isMicOn = true; 
+        console.log("unmuted");
+      } 
+    },
+    toggleCamera () {
+      // TODO: use `startStream` and `dispose` to achieve camera on/off
+      // console.log("myLocalTracks.video =", this.myLocalTracks.video);
+      // if (this.isCameraOn) this.myLocalTracks.video.mute();
+      // else this.myLocalTracks.video.unmute(); 
     }
   }
 };
