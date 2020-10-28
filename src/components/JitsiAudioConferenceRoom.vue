@@ -1,9 +1,22 @@
 <template>
   <div>
     <h1>JITSI AUDIO CONFERENCE PLAYGROUND</h1>
-    <p>otherParticipants: {{ otherParticipants }}</p>
+    <p>otherUsers: {{ otherUsers }}</p>
     <button @click="unload()">Unload</button>
     <button @click="switchVideo()">Switch video</button>
+
+    <div id="myAudioVideoTracks">
+
+    </div>
+
+    <div id="remoteVideoTracks">
+
+    </div>
+
+    <div id="remoteAudioTracks">
+
+    </div>
+
     <div id="audioOutputSelectWrapper" style="display: none;">
       Change audio output device
       <!-- <select id="audioOutputSelect" onchange="changeAudioOutput(this)"></select> -->
@@ -24,10 +37,10 @@
  *   4. Only then, integrate into Explain, then test separately 
  *   5. I estimate that it'll take 1 week, but after that the cost of running Explain will be free
  * 
- * Questions:
+ * FIXME:
+ *   A user sometimes shares two identical video tracks and two identical audio tracks. They should only share one of each. 
  *   How to clean up the conference room? Sometimes, there will be lots of dead tracks in the room and the participants didn't "leave". 
  *   How do I prevent ghosts from entering? 
- * 
  *   How can I get a reliable answer on how the reliability of Jitsi will change over the years? 
  * 
  * @see https://github.com/jitsi/lib-jitsi-meet/blob/master/doc/API.md
@@ -44,20 +57,22 @@ const remoteTracks = {};
 
 export default {
   name: "JitsiAudioConferenceRoom",
-  /**
-   * Connect to the audio conference room:
-   *   Step 1: initConfig with the JitsiMeetJS object
-   *   Step 2: initialize a JitsiConnection object
-   *   Step 3: use that `JitsiConnection` to connect 
-   *   Step 4: make sure when everything is cleaned up properly when destroyed
-   */
+  data () {
+    return {
+      otherUsers: []
+    };
+  },
   created () {
     // step 1/4: initialize the global JitsiMeetObject
-    JitsiMeetJS.setLogLevel(JitsiMeetJS.logLevels.ERROR); 
+    console.log("JitsiMeetJS.logLevels =", JitsiMeetJS.logLevels);
+    const isThisAPromise = JitsiMeetJS.setLogLevel(JitsiMeetJS.logLevels.ERROR); 
+    console.log("isThisAPromise =", isThisAPromise);
     JitsiMeetJS.init(initConfigStandard); 
+
+    // TODO: clean-up the event listeners
     JitsiMeetJS.mediaDevices.addEventListener(
       JitsiMeetJS.events.mediaDevices.DEVICE_LIST_CHANGED, 
-      devices => console.info('current devices', devices)
+      (devices) => console.info('current devices', devices)
     );
 
     // step 2/4: initalize a connection object
@@ -69,8 +84,8 @@ export default {
     connection.connect(); // doesn't seem to return a promise
 
     // step 3/4: create local tracks and share them FIXME: has race conditions
-    JitsiMeetJS.createLocalTracks({ devices: ['audio', 'video'] }) // @param tracks Array with JitsiTrack objects
-      .then(tracks => {
+    JitsiMeetJS.createLocalTracks({ devices: ['audio', 'video'] }) 
+      .then(tracks => { // @param tracks Array with JitsiTrack objects
         localTracks = tracks;
         for (let i = 0; i < localTracks.length; i++) {
           // set-up event handlers
@@ -84,10 +99,10 @@ export default {
 
           // attach to DOM
           if (localTracks[i].getType() === 'video') {
-            $('body').append(`<video autoplay='1' id='localVideo${i}' style="width: 300px; height: 300px;"/>`);
+            $('#myAudioVideoTracks').append(`<video autoplay='true' id='localVideo${i}' style="width: 300px; height: 300px;"/>`);
             localTracks[i].attach($(`#localVideo${i}`)[0]);
           } else {
-            $('body').append(`<audio autoplay='1' muted='true' id='localAudio${i}' />`);
+            $('#myAudioVideoTracks').append(`<audio autoplay='true' muted='true' id='localAudio${i}' />`);
             localTracks[i].attach($(`#localAudio${i}`)[0]);
           }
 
@@ -101,7 +116,11 @@ export default {
         throw error;
       });
 
-    // enable the user to change audio output devices
+    // step 4/4: make sure everything will be cleaned-up properly when destroyed
+    $(window).bind('beforeunload', this.unload);
+    $(window).bind('unload', this.unload);
+
+    // (OPTIONAL): Enable the user to change audio output devices
     // TODO: enable the user to change audio input devices
     if (JitsiMeetJS.mediaDevices.isDeviceChangeAvailable('output')) {
       JitsiMeetJS.mediaDevices.enumerateDevices(devices => {
@@ -114,35 +133,27 @@ export default {
         }
       });
     }
-
-    // step 4/4: make sure everything will be cleaned-up properly when destroyed
-    $(window).bind('beforeunload', this.unload);
-    $(window).bind('unload', this.unload);
-  },
-  data () {
-    return {
-      otherParticipants: []
-    };
   },
   methods: {
     onConnectionSuccess () {
-      room = connection.initJitsiConference('conference', conferenceConfigStandard);
+      room = connection.initJitsiConference("conference", conferenceConfigStandard);
       
+      // PART 1/2: set up event listeners
       const { conference } = JitsiMeetJS.events; 
       
       room.on(conference.TRACK_ADDED, (track) => {
         if (track.isLocal()) { 
           return;
         }
-        const participant = track.getParticipantId();
-        if (!remoteTracks[participant]) {
-          remoteTracks[participant] = [];
+        const participantID = track.getParticipantId();
+        if (!remoteTracks[participantID]) {
+          remoteTracks[participantID] = [];
         }
-        const idx = remoteTracks[participant].push(track);
+        const idx = remoteTracks[participantID].push(track);
 
-        // set-up event handlers
-        const { events } = JitsiMeetJS; 
-        track.addEventListener(events.track.TRACK_AUDIO_LEVEL_CHANGED, audioLevel => 
+        // set-up event handlers 
+        const { events } = JitsiMeetJS; // cannot destructure track because its already declared as a variable)
+        track.addEventListener(events.track.TRACK_AUDIO_LEVEL_CHANGED, (audioLevel) => 
           console.log(`Audio Level remote: ${audioLevel}`)
         );
         track.addEventListener(events.track.TRACK_MUTE_CHANGED, () => 
@@ -152,22 +163,23 @@ export default {
           console.log('remote track stoped')
         );
         
-        const id = participant + track.getType() + idx;
+        const trackID = participantID + track.getType();
         if (track.getType() === 'video') {
-          $('body').append(`
-            <p>participantID ${participant}'s VIDEO</p>
-            <video autoplay='1' id='${participant}video${idx}' />
+          $("#remoteVideoTracks").append(`
+            <p>participantID ${participantID}'s VIDEO</p>
+            <video autoplay='true' id='${trackID}' style="height: 500px; width: 500px"/>
           `);
         } else {
-          $('body').append(`
-            <p>participantID ${participant}'s AUDIO</p>
-            <audio autoplay='1' id='${participant}audio${idx}' />
+          $("#remoteAudioTracks").append(`
+            <p>participantID ${participantID}'s AUDIO</p>
+            <audio autoplay='true' id='${trackID}' />
           `);
         }
-        track.attach($(`#${id}`)[0]);
+        track.attach($(`#${trackID}`)[0]);
       });
 
-      room.on(conference.TRACK_REMOVED, track => {
+      room.on(conference.TRACK_REMOVED, (track) => {
+        // TODO: remove the tracks from the local state and UI (worry about state first)
         console.log(`The track ${track} was removed`);
       });
 
@@ -180,34 +192,33 @@ export default {
         }
       });
 
-      room.on(conference.USER_JOINED, (id) => {
-        console.log("user joined, id =", id); 
+      room.on(conference.USER_JOINED, (userID) => {
+        console.log("user joined with id =", userID); 
+        this.otherUsers.push(userID);
         // this.otherParticipants.push(id); 
-        remoteTracks[id] = [];
+        remoteTracks[userID] = [];
       });
 
-      room.on(conference.USER_LEFT, (id) => {
-        console.log('USER_LEFT event fired');
-        if (!remoteTracks[id]) {
-          console.log("EARLY EXIT");
+      room.on(conference.USER_LEFT, (userID) => {
+        // TODO: this pre-condition check is redundant if the rep invariant is maintained in the component
+        if (!remoteTracks[userID]) { 
+          console.log("rep invariant violated: user has no remote tracks for some reason");
           return;
         }
-        const tracks = remoteTracks[id];
-
-        // FIXME: the detach() function throws errors
-        for (let i = 0; i < tracks.length; i++) {
-          console.log("about to throw the errors here");
-          console.log("HTML container =", $(`#${id}${tracks[i].getType()}`));
-          console.log("track =", tracks[i]);
-          tracks[i].detach($(`#${id}${tracks[i].getType()}`));
+        // FIXME: the detach() function throws errors 
+        // potentially related to https://github.com/jitsi/lib-jitsi-meet/issues/859
+        for (const track of remoteTracks[userID]) {
+          const htmlElement = document.getElementById(userID + track.getType());
+          track.detach(htmlElement); // `detach` the data stream/track i.e. the src attribute 
+          htmlElement.remove(); // remove the element itself
         }
-        console.log("Finished handling USER_LEFT event")
       });
 
-      room.on(conference.TRACK_MUTE_CHANGED, track => 
+      room.on(conference.TRACK_MUTE_CHANGED, (track) => 
         // TODO: mute that participant
         console.log(`${track.getType()} - ${track.isMuted()}`)
       );
+  
       room.join();
     },
     onDisconnect () {
@@ -224,7 +235,6 @@ export default {
       connection.disconnect();
     },  
     switchVideo () { 
-      console.log("switchVideo ()");
       isVideo = !isVideo;
       if (localTracks[1]) {
         localTracks[1].dispose();
