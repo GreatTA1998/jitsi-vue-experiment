@@ -38,7 +38,7 @@
  * 
  * @see Overall API: https://github.com/jitsi/lib-jitsi-meet/blob/master/doc/API.md
  * @see Specific Track API: https://github.com/jitsi/lib-jitsi-meet/blob/master/doc/API.md#jitsitrack
- * 
+ *
  * TODO: 
  *   1. Make the `connection` object an instance variable i.e `this.connection` rather than a global variable 
  *   2. Now that everything is translated into Vue, display the state correctly e.g. muted, video, participants
@@ -55,9 +55,7 @@
  *   When switching from sharing video to sharing screen, something stops. FIX: create a simple method for sharing video (ignore screenshare) 
  *   A user sometimes shares two identical video tracks and two identical audio tracks. They should only share one of each. 
  *   How do I prevent ghosts from entering? FIX: don't reload using localhost:8080, as the destroyed hook is not properly called
- *   How can I get a reliable answer on how the reliability of Jitsi will change over the years? 
- * 
- * 
+ *   How can I get a reliable answer on how the reliability of Jitsi will change over the years?
  */
 import { initConfigStandard, getConnectionConfigNikita, conferenceConfigStandard } from "@/JitsiConfigs.js"; 
 
@@ -92,9 +90,10 @@ export default {
     this.jitsiConnector.addEventListener(CONNECTION_ESTABLISHED, this.onConnectionSuccess);
     this.jitsiConnector.addEventListener(CONNECTION_FAILED, this.onConnectionFailed);
     this.jitsiConnector.addEventListener(CONNECTION_DISCONNECTED, this.onDisconnect);
-    this.jitsiConnector.connect(); // doesn't seem to return a promise
-
-    this.shareMyLocalTracks(); 
+   
+    // .connect() does *not* return a promise, 
+    // so the callback is defined in `room.on(...CONFERENCE_JOINED, callback)`
+    this.jitsiConnector.connect(); 
 
     // step 4/4: make sure everything will be cleaned-up properly when destroyed
     $(window).bind('beforeunload', this.unload);
@@ -109,30 +108,26 @@ export default {
      * In the future, add a parameter ("video: true, audio: true")?
      */
     async shareMyLocalTracks () {
-      // @param tracks Array with JitsiTrack objects
-      const tracks = await JitsiMeetJS.createLocalTracks({ devices: ['audio'] }); // can be ['audio', 'video']
-      localTracks = tracks;
-      // TODO: phase out localTracks 
-      for (const track of localTracks) {
-        if (track.getType() === "audio") {
-          this.$set(this.myLocalTracks, "mic", track);
-        } else {
-          this.$set(this.myLocalTracks, "camera", track);
-        }
+      return new Promise(async (resolve) => {
+        // @param tracks Array with JitsiTrack objects
+        const tracks = await JitsiMeetJS.createLocalTracks({ devices: ['audio'] }); // can be ['audio', 'video']
+        console.log(`created ${tracks.length} tracks`);
+        localTracks = tracks;
+        // TODO: phase out localTracks 
+        for (const track of localTracks) {
+          if (track.getType() === "audio") {
+            this.$set(this.myLocalTracks, "mic", track);
+          } else {
+            this.$set(this.myLocalTracks, "camera", track);
+          }
 
-        if (track.getType() === 'video') {
-          $('#myLocalTracks').append(`<video autoplay='true' id='localVideo' style="width: 300px; height: 300px;"/>`);
-          track.attach($(`#localVideo`)[0]);
-        } 
-
-        // FIXME: race condition // will be (unintuitively) covered by the event listener below
-        // TODO: find a way to encapsulate the logic 
-        // however, this helps with joining the room faster
-        // get it working first, then refactor?
-        if (isJoined) {
-          room.addTrack(track);
+          if (track.getType() === 'video') {
+            $('#myLocalTracks').append(`<video autoplay='true' id='localVideo' style="width: 300px; height: 300px;"/>`);
+            track.attach($(`#localVideo`)[0]);
+          } 
         }
-      }
+        resolve();
+      });
     },
     onConnectionSuccess () {
       room = this.jitsiConnector.initJitsiConference( // I assume `initJitsiConference` just joins the conference if it exists already
@@ -145,8 +140,9 @@ export default {
 
       // TODO: sometimes tracks are added twice because there are two places that add the local tracks depending on the value of isJoined
       // FIX: this is exactly why sometimes one participant will share duplicate tracks
-      room.on(conference.CONFERENCE_JOINED, () => {
+      room.on(conference.CONFERENCE_JOINED, async () => {
         isJoined = true;
+        await this.shareMyLocalTracks(); 
         for (const track of localTracks) {
           room.addTrack(track);
         }
