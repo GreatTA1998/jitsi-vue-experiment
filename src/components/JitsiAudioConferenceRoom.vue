@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1>AUDIO CONFERENCE PLAYGROUND</h1>
-    <p>otherUsers: {{ otherUsers }}</p>
+    <p>isUserMutedMap: {{ isUserMutedMap }}</p>
 
     <!-- TODO: implement these buttons -->
     <button @click="toggleMic()">Toggle mute</button>
@@ -40,22 +40,22 @@
  * @see Specific Track API: https://github.com/jitsi/lib-jitsi-meet/blob/master/doc/API.md#jitsitrack
  *
  * TODO: 
- *   1. Make the `connection` object an instance variable i.e `this.connection` rather than a global variable 
  *   2. Now that everything is translated into Vue, display the state correctly e.g. muted, video, participants
  *   3. Test extensively and deploy onto a dummy Firebase website and test in isolation
  *   4. Only then, integrate into Explain, then test separately 
- *   5. I estimate that it'll take 1 week, but after that the cost of running Explain will be free
+ *   5. I estimate that it'll take 2 weeks, but after that the cost of running Explain will be free
  *   6. Detect dominant speaker
  * 
- * FIXME:
- *   If you turn on the camera only after having established the connection, even though the video track is correctly detected by everyone,
- *   it isn't actually playing or it simply has no data for some reason. 
- *   Don't automatically randomly start trying to share local media. Find a way to await on that, or use the watch hook to manually trigger that.
- *   Cannot mute: even when I manually set the "mute" attributes of all audio elements to true, there is still an echo when two tabs are opened
- *   When switching from sharing video to sharing screen, something stops. FIX: create a simple method for sharing video (ignore screenshare) 
- *   A user sometimes shares two identical video tracks and two identical audio tracks. They should only share one of each. 
- *   How do I prevent ghosts from entering? FIX: don't reload using localhost:8080, as the destroyed hook is not properly called
- *   How can I get a reliable answer on how the reliability of Jitsi will change over the years?
+ * CRITICAL ISSUES
+ *   Mute does not always work (sometimes the echo remains even if both tabs are muted, possibly related to duplicate audio tracks)
+ *   Duplicate audio tracks
+ *   
+ *   Video related issues
+ *      - Even if the video track is correctly added, it's not actually carrying any data
+ * 
+ * Reliability concerns
+ *   Even though there is no guarantee on the reliability of Jitsi over the years,
+ *   I trust it for the near future because Professor Erik Demaine trusts it with his project.
  */
 import { initConfigStandard, getConnectionConfigNikita, conferenceConfigStandard } from "@/JitsiConfigs.js"; 
 
@@ -69,14 +69,12 @@ export default {
   name: "JitsiAudioConferenceRoom",
   data () {
     return {
-      myLocalTracks: {
-        mic: null,
-        camera: null
-      },
-      isMicOn: true, // quickfix for debugging purposes
+      jitsiConnector: null,
+      localMicTrack: null,
+      localCameraTrack: null,
+      isMuted: false, // quickfix for debugging purposes
       isCameraOn: false,
-      otherUsers: [],
-      jitsiConnector: null
+      isUserMutedMap: {},
     };
   },
   created () {
@@ -116,8 +114,9 @@ export default {
         // TODO: phase out localTracks 
         for (const track of localTracks) {
           if (track.getType() === "audio") {
-            this.$set(this.myLocalTracks, "mic", track);
+            this.localMicTrack = track; 
           } else {
+            this.localCameraTrack = track; 
             this.$set(this.myLocalTracks, "camera", track);
           }
 
@@ -130,6 +129,7 @@ export default {
       });
     },
     onConnectionSuccess () {
+      // TODO: refactor room to be an instance variable
       room = this.jitsiConnector.initJitsiConference( // I assume `initJitsiConference` just joins the conference if it exists already
         "conference", 
         conferenceConfigStandard
@@ -146,9 +146,14 @@ export default {
         for (const track of localTracks) {
           room.addTrack(track);
         }
+
+        console.log("myUser ID =", room.myUserId());
+        // Update my own audio status 
+        // TODO: let this persist the audio settings 
+        this.$set(this.isUserMutedMap, room.myUserId(), false);
       });
       
-      room.on(conference.TRACK_ADDED, (track) => {
+      room.on(conference.TRACK_ADDED, async (track) => {
         console.log("track was added to the audio conference")
         if (track.isLocal()) { 
           console.log("but it's from me myself")
@@ -159,23 +164,15 @@ export default {
         if (!remoteTracks[participantID]) {
           remoteTracks[participantID] = [];
         }
-        const idx = remoteTracks[participantID].push(track);
-
-        // handle other people muting their tracks here
-        const { TRACK_MUTE_CHANGED, LOCAL_TRACK_STOPPED } = JitsiMeetJS.events.track; // cannot destructure track because its already declared as a variable)
-        track.addEventListener(TRACK_MUTE_CHANGED, () => 
-          console.log('remote track muted')
-        );
-        track.addEventListener(LOCAL_TRACK_STOPPED, () => 
-          console.log('remote track stopped')
-        );
+        
+        // const idx = remoteTracks[participantID].push(track);
         
         // mount to DOM 
         const trackID = participantID + track.getType();
         if (track.getType() === 'video') {
           $("#remoteVideoTracks").append(`
             <p>participantID ${participantID}'s VIDEO</p>
-            <video autoplay='true' id='${trackID}' style="height: 500px; width: 500px"/>
+            <video autoplay='1' id='${trackID}'></video>
           `);
         } else {
           $("#remoteAudioTracks").append(`
@@ -183,16 +180,19 @@ export default {
             <audio autoplay='true' id='${trackID}' />
           `);
         }
+        for (let i = 0; i < 100; i++) {
+          await this.$nextTick(); 
+        }
         track.attach($(`#${trackID}`)[0]);
+        console.log("my hypothesis is that the track is stopped/muted for some reason =", track);
+        console.log("Track.isMuted() =", track.isMuted()); 
+        console.log("attached track to element with ID =", trackID); 
       });
 
-      room.on(conference.TRACK_REMOVED, (track) => {
-        // TODO: remove the tracks from the local state and UI (worry about state first)
-        console.log(`The track ${track} was removed`);
-      });
-
+      // TODO: figure out if this event is fired with myself
       room.on(conference.USER_JOINED, (userID) => {
-        this.otherUsers.push(userID);
+        console.log("another user joined"); 
+        this.$set(this.isUserMutedMap, userID, false);
         remoteTracks[userID] = [];
       });
 
@@ -202,6 +202,10 @@ export default {
           console.log("rep invariant violated: user has no remote tracks for some reason");
           return;
         }
+
+        // this is why it's necessary to keep track of the remoteTracks, 
+        // otherwise the clean up is going to be difficult
+
         // FIXME: the detach() function throws errors 
         // potentially related to https://github.com/jitsi/lib-jitsi-meet/issues/859
         for (const track of remoteTracks[userID]) {
@@ -211,10 +215,19 @@ export default {
         }
       });
 
-      room.on(conference.TRACK_MUTE_CHANGED, (track) => 
-        // TODO: mute that participant
-        console.log(`${track.getType()} - ${track.isMuted()}`)
-      );
+      // .mute() behavior is automatically handled, but we have to keep our 
+      // metadata of each remote user updated
+      room.on(conference.TRACK_MUTE_CHANGED, (track) => {
+        console.log("the conference detected that one of the tracks was muted/unmuted, track =", track);
+        console.log("track.isMuted() =", track.isMuted());
+        this.$set(this.isUserMutedMap, track.getParticipantId(), track.isMuted());
+      });
+
+      // TODO: find out if this event handler is necessary in the first place
+      room.on(conference.TRACK_REMOVED, (track) => {
+        // TODO: remove the tracks from the local state and UI (worry about state first)
+        console.log(`The track ${track} was removed`);
+      });
   
       room.join();
     },
@@ -237,28 +250,13 @@ export default {
       room.leave();
       this.jitsiConnector.disconnect();
     },
-    /**
-     * FIXME: the muting behavior doesn't actually work. Possible causes: 
-     *   There is something hidden that is playing the audio source without needing the HTML element
-     *   Adding the "muted" attribute manually doesn't work
-     *   Look at StackOverflow, use everything you have to figure it out. 
-     */
     async toggleMic () {
-      console.log("myLocalTracks.audio =", this.myLocalTracks.mic);
-      // rename to this.localMicTrack
-      // rename to this.cameraMicTrack
-      if (this.isMicOn) {
-        console.log("before muting, audio track =", this.myLocalTracks.mic);
-        console.log("isMuted =", this.myLocalTracks.mic.isMuted());
-        await this.myLocalTracks.mic.mute(); 
-        this.isMicOn = false; 
-        console.log("after muting, audio track =", this.myLocalTracks.mic); 
-        console.log("isMuted =", this.myLocalTracks.mic.isMuted());
+      if (!this.isMuted) {
+        await this.localMicTrack.mute(); 
+        this.isMuted = true; 
       } else {
-        console.log("unmuting");
-        await this.myLocalTracks.mic.unmute(); 
-        this.isMicOn = true; 
-        console.log("unmuted");
+        await this.localMicTrack.unmute(); 
+        this.isMuted = false; 
       } 
     },
     /**
@@ -279,14 +277,14 @@ export default {
             <p>My Camera</p> 
             <video autoplay='true' id='myLocalCamera' style="height: 500px; width: 500px"/>
           `);
-          cameraTrack.attach($(`#myLocalCamera`)[0]);
+          cameraTrack.attach($("#myLocalCamera")[0]);
 
           // share to remote audio conference
           room.addTrack(cameraTrack);
 
           // maintain the rep invariant
           this.isCameraOn = true; 
-          this.$set(this.myLocalTracks, "camera", cameraTrack);
+          this.localCameraTrack = cameraTrack; 
 
           // print statements
           console.log("succesfully `added` cameraTrack to the conference rom")
@@ -307,10 +305,8 @@ export default {
        */
       else if (this.isCameraOn) {
         console.log("disposing the video track")
-        await this.myLocalTracks.camera.dispose(); 
+        await this.localCameraTrack.dispose(); 
         console.log("succesfully disposed")
-
-        // also have to unmount
       }
     },
     // TODO: display an error popup message
