@@ -1,4 +1,7 @@
 /**
+ * For the full configuration example, see: https://meet.jit.si/config.js 
+ * https://www.thecodingartist.com/blogs/creating-custom-jitsi-ui-using-vuejs/
+ * 
  * There are 3 types of configs: 
  *   1. initConfig := sort of a global config for the entire JitsiMeetJS object
  *      Example: 
