@@ -38,13 +38,6 @@
  * 
  * @see Overall API: https://github.com/jitsi/lib-jitsi-meet/blob/master/doc/API.md
  * @see Specific Track API: https://github.com/jitsi/lib-jitsi-meet/blob/master/doc/API.md#jitsitrack
- *
- * TODO: 
- *   2. Now that everything is translated into Vue, display the state correctly e.g. muted, (video), dominant speaker
- *   3. Test extensively and deploy onto a dummy Firebase website and test in isolation
- *   4. Only then, integrate into Explain, then test separately 
- *   5. I estimate that it'll take 2 weeks, but after that the cost of running Explain will be free
- *   6. Detect dominant speaker
  * 
  * CRITICAL ISSUES
  *   Duplicate tracks are shared sometimes
@@ -90,8 +83,8 @@ export default {
     this.jitsiConnector.connect(); 
 
     // step 4/4: make sure everything will be cleaned-up properly when destroyed
-    $(window).bind('beforeunload', this.unload);
-    $(window).bind('unload', this.unload);
+    $(window).bind("beforeunload", this.unload);
+    $(window).bind("unload", this.unload);
   },
   beforeDestroy () {
     this.disposeTracksAndDisconnectFromConference();
@@ -163,12 +156,6 @@ export default {
       });
 
       this.conferenceRoom.on(conference.USER_LEFT, (userID) => {
-        // TODO: this pre-condition check is redundant if the rep invariant is maintained in the component
-        if (!this.remoteTracks[userID]) { 
-          console.log("rep invariant violated: user has no remote tracks for some reason");
-          return;
-        }
-
         // maintain the rep invariant
         delete this.isUserMutedMap[userID]; 
         
