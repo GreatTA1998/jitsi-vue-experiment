@@ -7,7 +7,7 @@
 
     <button @click="toggleMic()">Toggle mute</button>
     <button @click="toggleCamera()">Toggle camera</button>
-    <button @click="shareScreen()">Toggle screen-share</button>
+    <button @click="toggleScreen()">Toggle screen-share</button>
     <button @click="unload()">Hang up</button>
 
     <div id="myLocalTracks">
@@ -125,8 +125,10 @@ export default {
               break; 
             case "video": 
               this.localCameraTrack = track; 
-              $('#myLocalTracks').append(`<video autoplay='true' id='localVideo' style="width: 300px; height: 300px;"/>`);
-              track.attach($(`#localVideo`)[0]);
+              $('#myLocalTracks').append(
+                `<video autoplay="true" id="myLocalCameraTrack" style="width: 300px; height: 300px;"/>`
+              );
+              track.attach($("#myLocalCameraTrack")[0]);
               break; 
           }
           this.conferenceRoom.addTrack(track);
@@ -137,19 +139,15 @@ export default {
       });
       
       this.conferenceRoom.on(TRACK_ADDED, async (track) => {
+        console.log("new track, type =", track.getType());
         if (track.isLocal()) { // TODO: re-write: participantID = myUserId()
-          console.log("track is local")
+          console.log("track is from myself =", track);
           return;
         }
+        console.log("track is from someone else =", track);
 
-        // step 1/3: maintain rep invariant
+        // step 1/3: mount to DOM (TODO: use a switch statement?)
         const participantID = track.getParticipantId();
-        if (!this.remoteTracks[participantID]) {
-          this.$set(this.remoteTracks, participantID, []);
-        }
-        const idx = this.remoteTracks[participantID].push(track); // WARNING: this operation is probably undetectable and therefore unreactive
-        
-        // step 2/3: mount to DOM (TODO: use a switch statement?)
         const trackID = participantID + track.getType();
         if (track.getType() === 'video') {
           $("#remoteVideoTracks").append(`<video autoplay="true" id="${trackID}" style="width: 300px; height: 300px"/>`);
@@ -157,8 +155,14 @@ export default {
           $("#remoteAudioTracks").append(`<audio autoplay="true" id="${trackID}"/>`);
         }
 
-        // step 3/3: attach the stream/track
+        // step 2/3: attach the stream/track
         track.attach($(`#${trackID}`)[0]);
+
+        // step 3/3: maintain the rep invariant
+        if (!this.remoteTracks[participantID]) {
+          this.$set(this.remoteTracks, participantID, []);
+        }
+        this.remoteTracks[participantID].push(track); // WARNING: this operation is probably undetectable and therefore unreactive
       });
 
       // tracks can be removed even if the user didn't leave. 
@@ -221,9 +225,9 @@ export default {
           devices: ["video"]
         });
         $("#myLocalTracks").append(`
-          <video autoplay="true" id="myLocalCamera" style="height: 500px; width: 500px"/>
+          <video autoplay="true" id="myLocalCameraTrack" style="height: 300px; width: 300px"/>
         `);
-        cameraTrack.attach($("#myLocalCamera")[0]);
+        cameraTrack.attach($("#myLocalCameraTrack")[0]); // why is there a [0] in here?
         this.conferenceRoom.addTrack(cameraTrack);
 
         // maintain the rep invariant
@@ -232,11 +236,13 @@ export default {
       }
     
       else {
+        $("#myLocalCameraTrack").remove(); 
+        // document.getElementById("myLocalCameraTrack").remove(); 
         this.localCameraTrack.dispose();
         this.isUserCameraOnMap[this.myID] = false; 
       }
     },
-    async shareScreen () {
+    async toggleScreen () {
       if (! this.isUserSharingScreenMap[this.myID]) {
          const [ screenTrack ] = await JitsiMeetJS.createLocalTracks({
           devices: ["desktop"]
