@@ -105,10 +105,17 @@ export default {
     onConnectionSuccess () {
       this.conferenceRoom = this.jitsiConnector.initJitsiConference("conference", conferenceConfigStandard); // I assume `initJitsiConference` just joins the conference if it exists already
       
-      // the remaining code is about setting up event listeners; 
-      const { conference } = JitsiMeetJS.events; 
+      // we now handle these following events: 
+      const { 
+        CONFERENCE_JOINED,
+        TRACK_ADDED, 
+        TRACK_REMOVED,
+        USER_JOINED,
+        DOMINANT_SPEAKER_CHANGED,
+        TRACK_MUTE_CHANGED,
+        USER_LEFT } = JitsiMeetJS.events.conference;
 
-      this.conferenceRoom.on(conference.CONFERENCE_JOINED, async () => {
+      this.conferenceRoom.on(CONFERENCE_JOINED, async () => {
         const myLocalTracks = await JitsiMeetJS.createLocalTracks({ devices: ["audio", "video"] }); 
         console.log("myLocalTracks =", myLocalTracks); 
         for (const track of myLocalTracks) {
@@ -129,7 +136,7 @@ export default {
         this.$set(this.isUserCameraOnMap, this.myID, true); 
       });
       
-      this.conferenceRoom.on(conference.TRACK_ADDED, async (track) => {
+      this.conferenceRoom.on(TRACK_ADDED, async (track) => {
         if (track.isLocal()) { // TODO: re-write: participantID = myUserId()
           console.log("track is local")
           return;
@@ -156,27 +163,18 @@ export default {
 
       // tracks can be removed even if the user didn't leave. 
       // For example, a screen-share session can be turned on and off.
-      this.conferenceRoom.on(conference.TRACK_REMOVED, (track) => {
+      this.conferenceRoom.on(TRACK_REMOVED, (track) => {
         const htmlElement = document.getElementById(track.getParticipantId() + track.getType());
         if (htmlElement) htmlElement.remove(); 
       })
 
       // note USER_JOINED is only fired for other users and not ourselves
-      this.conferenceRoom.on(conference.USER_JOINED, (userID) => { 
+      this.conferenceRoom.on(USER_JOINED, (userID) => { 
         this.$set(this.isUserMutedMap, userID, false);
         this.$set(this.remoteTracks, userID, []);
       });
 
-      this.conferenceRoom.on(conference.DOMINANT_SPEAKER_CHANGED, (userID) => 
-        this.dominantSpeakerID = userID
-      );
-
-      // muted tracks will already have no sound, but we still have maintain rep invariant
-      this.conferenceRoom.on(conference.TRACK_MUTE_CHANGED, (track) => 
-        this.$set(this.isUserMutedMap, track.getParticipantId(), track.isMuted())
-      );
-
-      this.conferenceRoom.on(conference.USER_LEFT, (userID) => {
+      this.conferenceRoom.on(USER_LEFT, (userID) => {
         // maintain the rep invariant
         delete this.isUserMutedMap[userID]; 
         
@@ -193,6 +191,15 @@ export default {
         }
       });
 
+      this.conferenceRoom.on(DOMINANT_SPEAKER_CHANGED, (userID) => 
+        this.dominantSpeakerID = userID
+      );
+      
+      // muted tracks will already have no sound, but we still have maintain the rep invariant
+      this.conferenceRoom.on(TRACK_MUTE_CHANGED, (track) => 
+        this.$set(this.isUserMutedMap, track.getParticipantId(), track.isMuted())
+      );
+
       // finally join the room 
       this.conferenceRoom.join();
     },
@@ -205,8 +212,8 @@ export default {
       this.$set(this.isUserMutedMap, this.myID, this.localMicTrack.isMuted()); 
     },
     /**
-     * Pre-condition: the user is already connected to the conference,
-     * which is satisfied because the camera button is only displayed to the user when successfully connected.
+     * This method assumes, as a pre-condition, that the user has already connected to `Conference`.
+     * This pre-condition is satisfied because the camera button is displayed only after the user has connected.
      */
     async toggleCamera () {
       if (! this.isUserCameraOnMap[this.myID]) {
