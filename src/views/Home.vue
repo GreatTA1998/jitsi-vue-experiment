@@ -1,16 +1,16 @@
 <template>
   <div class="home">
-    <JitsiAudioConferenceRoom/>
+    <VideoConferenceRoom/>
   </div>
 </template>
 
 <script>
-import JitsiAudioConferenceRoom from "@/components/JitsiAudioConferenceRoom.vue";
+import VideoConferenceRoom from "@/components/VideoConferenceRoom.vue";
 
 export default {
   name: 'Home',
   components: {
-    JitsiAudioConferenceRoom
+    VideoConferenceRoom
   }
 }
 </script>
