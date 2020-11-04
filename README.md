@@ -14,7 +14,7 @@ npm run serve
 
 ## How to understand the code
 `public/index.html` calls `main.js`, which calls `<App/>`, which calls `<router-view/>`, which calls `<VideoConferenceRoom/>`. 
-Therefore, only `src/components/VideoConferencingRoom.vue` matters.
+Therefore `src/components/VideoConferencingRoom.vue` is the essence of the codebase.
 
 I recorded some blackboard videos to explain the code and the bug: 
   - [Correctness argument (1/2)](https://explain-latest.firebaseapp.com/explanation/SylZBcwi4b868H1q8eGJ/class/mDbUrvjy4pe8Q5s5wyoD)
