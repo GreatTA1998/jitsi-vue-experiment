@@ -14,6 +14,9 @@ npm run serve
 ```
 
 ## How to understand the code
+`public/index.html` has a script tag that calls `main.js`, which is the app's entry point and renders `<App/>` which renders `<router-view/>` which finally renders `<VideoConferenceRoom/>`. 
+Therefore, only `src/components/VideoConferencingRoom.vue` matters.
+
 I recorded some blackboard videos to explain the code and the bug: 
   - [Correctness argument (1/2)](https://explain-latest.firebaseapp.com/explanation/SylZBcwi4b868H1q8eGJ/class/mDbUrvjy4pe8Q5s5wyoD)
   - [Correctness argument (2/2)](https://explain-latest.firebaseapp.com/explanation/qBeQGho7HDSJ1brHMKdU/class/mDbUrvjy4pe8Q5s5wyoD)
