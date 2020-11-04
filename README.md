@@ -16,7 +16,7 @@ npm run serve
 `public/index.html` calls `main.js`, which calls `<App/>`, which calls `<router-view/>`, which calls `<VideoConferenceRoom/>`. 
 Therefore `src/components/VideoConferencingRoom.vue` is the essence of the codebase.
 
-I recorded some blackboard videos to explain the code and the bug: 
+I recorded some blackboard videos to explain `<VideoConferenceRoom/>`:
   - [Correctness argument (1/2)](https://explain-latest.firebaseapp.com/explanation/SylZBcwi4b868H1q8eGJ/class/mDbUrvjy4pe8Q5s5wyoD)
   - [Correctness argument (2/2)](https://explain-latest.firebaseapp.com/explanation/qBeQGho7HDSJ1brHMKdU/class/mDbUrvjy4pe8Q5s5wyoD)
   - [Rubber-duck explanation of camera bug](https://explain-latest.firebaseapp.com/explanation/W4tWFf6BBpLOFaLnL0mm/class/mDbUrvjy4pe8Q5s5wyoD)
