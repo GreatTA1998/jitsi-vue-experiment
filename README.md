@@ -10,11 +10,10 @@ npm install
 
 # step 3/3: start the app on localhost:8080
 npm run serve
-
 ```
 
 ## How to understand the code
-`public/index.html` has a script tag that calls `main.js`, which is the app's entry point and renders `<App/>` which renders `<router-view/>` which finally renders `<VideoConferenceRoom/>`. 
+`public/index.html` calls `main.js`, which calls `<App/>`, which calls `<router-view/>`, which calls `<VideoConferenceRoom/>`. 
 Therefore, only `src/components/VideoConferencingRoom.vue` matters.
 
 I recorded some blackboard videos to explain the code and the bug: 
