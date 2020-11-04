@@ -1,19 +1,14 @@
 # jitsi-vue-experiment
 
-## Project setup
+## How to run code locally
 ```
-npm install
-```
+# step 1/3: copy app files into your laptop
+git clone https://github.com/eltonlin1998/jitsi-vue-experiment
 
-### Compiles and hot-reloads for development
-```
+# step 2/3: download the code libraries that this app relies on
+npm install 
+
+# step 3/3: start the app on localhost:8080
 npm run serve
-```
 
-### Compiles and minifies for production
 ```
-npm run build
-```
-
-### Customize configuration
-See [Configuration Reference](https://cli.vuejs.org/config/).
