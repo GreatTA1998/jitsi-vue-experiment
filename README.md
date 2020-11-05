@@ -1,19 +1,22 @@
 # jitsi-vue-experiment
 
-## Project setup
+## How to run code locally
 ```
-npm install
-```
+# step 1/3: copy app files into your laptop
+git clone https://github.com/eltonlin1998/jitsi-vue-experiment
 
-### Compiles and hot-reloads for development
-```
+# step 2/3: download the code libraries that this app relies on
+npm install 
+
+# step 3/3: start the app on localhost:8080
 npm run serve
 ```
 
-### Compiles and minifies for production
-```
-npm run build
-```
+## How to understand the code
+`public/index.html` calls `main.js`, which calls `<App/>`, which calls `<router-view/>`, which calls `<VideoConferenceRoom/>`. 
+Therefore `src/components/VideoConferencingRoom.vue` is the essence of the codebase.
 
-### Customize configuration
-See [Configuration Reference](https://cli.vuejs.org/config/).
+I recorded some blackboard videos to explain `<VideoConferenceRoom/>`:
+  - [Correctness argument (1/2)](https://explain-latest.firebaseapp.com/explanation/SylZBcwi4b868H1q8eGJ/class/mDbUrvjy4pe8Q5s5wyoD)
+  - [Correctness argument (2/2)](https://explain-latest.firebaseapp.com/explanation/qBeQGho7HDSJ1brHMKdU/class/mDbUrvjy4pe8Q5s5wyoD)
+  - [Rubber-duck explanation of camera bug](https://explain-latest.firebaseapp.com/explanation/W4tWFf6BBpLOFaLnL0mm/class/mDbUrvjy4pe8Q5s5wyoD)
