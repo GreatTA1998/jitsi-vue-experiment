@@ -37,9 +37,9 @@
  * 
  * CRITICAL ISSUES
  *   Duplicate tracks are shared sometimes
- *   The dominant speaker event is sometimes not very accurate or responsive
  *   Display errors explicitly with a popup rather than with an implicit console error e.g. video source error 
- * 
+ *
+ * KNOWN ISSUES: The dominant speaker event is sometimes not very accurate or responsive
  *   Video related issues (currently ignored) 
  *      - Even if the video track is correctly added, it's not actually carrying any data
  *      - when screenshare is stopped, the DOM element must be removed (there needs to be an event listener for when the track is stopped/disabled)
@@ -119,23 +119,17 @@ export default {
         const myLocalTracks = await JitsiMeetJS.createLocalTracks({ devices: ["audio", "video"] }); 
         console.log("myLocalTracks =", myLocalTracks); 
         for (const track of myLocalTracks) {
+          this.conferenceRoom.addTrack(track);
           switch (track.getType()) {
             case "audio": 
               this.localMicTrack = track; 
+              this.$set(this.isUserMutedMap, this.myID, track.isMuted()); // TODO: a user could also be muted initially, so the boolean value should not always be false 
               break; 
             case "video": 
-              this.localCameraTrack = track; 
-              $('#myLocalTracks').append(
-                `<video autoplay="true" id="myLocalCameraTrack" style="width: 300px; height: 300px;"/>`
-              );
-              track.attach($("#myLocalCameraTrack")[0]);
+              this.handleMyNewCameraTrack(track); 
               break; 
           }
-          this.conferenceRoom.addTrack(track);
         }
-        // initialize rep TODO: depending on the "audio", "video" parameter
-        this.$set(this.isUserMutedMap, this.myID, false); // TODO: a user could also be muted initially, so the boolean value should not always be false 
-        this.$set(this.isUserCameraOnMap, this.myID, true); 
       });
       
       this.conferenceRoom.on(TRACK_ADDED, async (track) => {
@@ -224,23 +218,51 @@ export default {
         const [ cameraTrack ] = await JitsiMeetJS.createLocalTracks({
           devices: ["video"]
         });
-        $("#myLocalTracks").append(`
-          <video autoplay="true" id="myLocalCameraTrack" style="height: 300px; width: 300px"/>
-        `);
-        cameraTrack.attach($("#myLocalCameraTrack")[0]); // why is there a [0] in here?
         this.conferenceRoom.addTrack(cameraTrack);
-
-        // maintain the rep invariant
-        this.$set(this.isUserCameraOnMap, this.myID, true); 
-        this.localCameraTrack = cameraTrack; 
-      }
-    
+        this.handleMyNewCameraTrack(cameraTrack);
+      } 
       else {
+        // there remains two possibilities that explains why the initial connection works but the subsequent connections don't worok
+        // possibility 1: when I toggle off the camera, I did not successfully reset everything and am missing something key (no because it succesfully resets for screen-sharing which uses the same reset logic)
+        // possibility 2: if the camera is shared later, it is somehow corrupt (I think it's just somehow corrupt when it's obtained later)
+
+        // if it's possibility 1, then it's more my fault. 
+        // if it's possibility 2, then it's more Jitsi's fault
+
+        // WHY IS THE CAMERA LIGHT STILL ON EVEN THOUGH I ALREADY DISPOSED THE TRACK?
+        // #1 I need to stop the track 
+        // #2 maybe I have to reste the pointer for the localCameraTrack
+
+        // despite that the reset logic works for screenshare, I will try the following to be more sure: 
+        //   ensure dispose() finishes executing before .remove(); (known because of the camera light effect)
+        //   removing the pointer
+
+
+        // CLUE #3 
+        // when there is no user, it gives new information
+        // when more things happen unexpectedly, it's giving you more information. That is why it's good when things are breaking.
+        // when there is a third tab, then even the initial connection fails. I suspect that says something about the DOM.
+
+        // CLUE #4 with 4 tabs, what it that happens? Tab 1 and Tab both only see two remote tracks, whereas Tab 3 sees all the tracks
+        // it also seems that when the 3rd tab succesfully joins, it replaces the second video remote feed of tab 2 (which used to be tab 1)
+        console.log("before dispose, localCameraTrack =", this.localCameraTrack);
+        await this.localCameraTrack.dispose(); 
         $("#myLocalCameraTrack").remove(); 
-        // document.getElementById("myLocalCameraTrack").remove(); 
-        this.localCameraTrack.dispose();
+        this.localCameraTrack = null; 
+        console.log("after dispose, localCameraTrack =", this.localCameraTrack);
         this.isUserCameraOnMap[this.myID] = false; 
       }
+    },
+    handleMyNewCameraTrack (cameraTrack) {
+      // maintain rep
+      this.localCameraTrack = cameraTrack; 
+      this.$set(this.isUserCameraOnMap, this.myID, true); 
+
+      // handle DOM 
+      $('#myLocalTracks').append(
+        `<video autoplay="true" id="myLocalCameraTrack" style="width: 300px; height: 300px;"/>`
+      );
+      cameraTrack.attach($("#myLocalCameraTrack")[0]);
     },
     async toggleScreen () {
       if (! this.isUserSharingScreenMap[this.myID]) {
@@ -257,7 +279,6 @@ export default {
         this.$set(this.isUserSharingScreenMap, this.myID, true); 
         this.localScreenTrack = screenTrack; 
       }
-
       else {
         $("#myLocalScreen").remove(); 
         this.localScreenTrack.dispose(); 
