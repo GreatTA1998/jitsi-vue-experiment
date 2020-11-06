@@ -3,11 +3,13 @@
     <h1>Video Conference Playground</h1>
     <p>isUserMutedMap: {{ isUserMutedMap }}</p>
     <p>isUserCameraOnMap: {{ isUserCameraOnMap }}</p>
+    <p>isUserSharingScreenMap: {{ isUserSharingScreenMap }}</p>
     <p>dominantSpeakerID: {{ dominantSpeakerID }}</p>
 
     <button @click="toggleMic()">Toggle mute</button>
-    <button @click="toggleCamera()">Toggle camera</button>
-    <button @click="toggleScreen()">Toggle screen-share</button>
+    <!-- the `:disabled` property below is necessary to respect Jitsi's limitation: only one video feed can be shared per user -->
+    <button @click="toggleCamera()" :disabled="localScreenTrack">Toggle camera</button>
+    <button @click="toggleScreen()" :disabled="localCameraTrack">Toggle screen-share</button>
     <button @click="unload()">Hang up</button>
 
     <div id="myLocalTracks">
@@ -26,29 +28,20 @@
 
 <script>
 /**
- * Built upon the lib-jisti-meet API, thiis is an audio conference room that supports basic functionalities such as mute/unmute, video share/unshare, screenshare
+ * Built upon the lib-jisti-meet API, this a minimalistic video conference room that supports basic functionalities such as mute/unmute, video share/unshare, screenshare
  * and the ability to detect the dominant speaker. 
  * 
- * TODO: create a documentation page on Github with links to Explain videos
- * Connection: used to create conference rooms
- * 
- * @see Overall API: https://github.com/jitsi/lib-jitsi-meet/blob/master/doc/API.md
+ * @see https://github.com/jitsi/lib-jitsi-meet/blob/master/doc/API.md
+ * @see // TODO: create a documentation  page on GitHub with links to Explain videos
  * @see Specific Track API: https://github.com/jitsi/lib-jitsi-meet/blob/master/doc/API.md#jitsitrack
- * 
- * CRITICAL ISSUES
- *   Duplicate tracks are shared sometimes
- *   Display errors explicitly with a popup rather than with an implicit console error e.g. video source error 
  *
- * KNOWN ISSUES: The dominant speaker event is sometimes not very accurate or responsive
- *   Video related issues (currently ignored) 
- *      - Even if the video track is correctly added, it's not actually carrying any data
- *      - when screenshare is stopped, the DOM element must be removed (there needs to be an event listener for when the track is stopped/disabled)
+ * KNOWN ISSUES: 
+ *   - Errors are not explicitly handled (e.g. no popup is shown)
+ *   - The dominant speaker event is sometimes not very accurate or responsive
  * 
- * Caveats: 
- *    Video sharing only works when calling ["audio", "video"], cannot currently get it working for some reason if it's just audio by default
- *    and the ability to turn on camera.
- *    Cannot share more than one video source at a time: you must deactivate your camera track if you want to share your screen track
- *    Repeated calls to the same "Jitsi.createLocalTracks" does not prompt the screen capture again
+ * Misleading behaviors of Jitsi: 
+ *    - Autoplay for Safari is disabled unless the user touched something, which is why having audio only by default is a great work-around for all browsers
+ *    - Cannot share more than one video source at a time: you must deactivate your camera track if you want to share your screen track
  * 
  * Reliability and quality concerns:
  *   Even though there is no guarantee on the reliability of Jitsi over the years,
@@ -88,8 +81,14 @@ export default {
     this.jitsiConnector = new JitsiMeetJS.JitsiConnection(null, null, getConnectionConfigNikita("put-room-id-here"));
     const { CONNECTION_ESTABLISHED, CONNECTION_FAILED, CONNECTION_DISCONNECTED } = JitsiMeetJS.events.connection;
     this.jitsiConnector.addEventListener(CONNECTION_ESTABLISHED, this.onConnectionSuccess);
-    this.jitsiConnector.addEventListener(CONNECTION_FAILED, this.onConnectionFailed);
-    this.jitsiConnector.addEventListener(CONNECTION_DISCONNECTED, this.onDisconnect);
+    this.jitsiConnector.addEventListener(CONNECTION_FAILED, (e) => console.error("Connection failed, error =", e)); // can display an explicit error popup
+    const removeJitsiConnectorEventListeners = () => {
+      const { CONNECTION_ESTABLISHED, CONNECTION_FAILED, CONNECTION_DISCONNECTED } = JitsiMeetJS.events.connection; 
+      this.jitsiConnector.removeEventListener(CONNECTION_ESTABLISHED, this.onConnectionSuccess);
+      this.jitsiConnector.removeEventListener(CONNECTION_FAILED, (e) => console.error("Connection failed, error =", e)); // can display an explicit error popup 
+      this.jitsiConnector.removeEventListener(CONNECTION_DISCONNECTED, removeJitsiConnectorEventListeners);
+    }
+    this.jitsiConnector.addEventListener(CONNECTION_DISCONNECTED, removeJitsiConnectorEventListeners);
    
     // step 3/4 .connect() does *not* return a promise, so the callback is defined in `room.on(...CONFERENCE_JOINED, callback)`
     this.jitsiConnector.connect(); 
@@ -105,6 +104,9 @@ export default {
     onConnectionSuccess () {
       this.conferenceRoom = this.jitsiConnector.initJitsiConference("conference", conferenceConfigStandard); // I assume `initJitsiConference` just joins the conference if it exists already
       
+      // this line below resolves a lib-jitsi-meet bug that I spent 3 days debugging: https://github.com/jitsi/lib-jitsi-meet/issues/1333#issuecomment-711107368
+      this.conferenceRoom.setSenderVideoConstraint(150);
+
       // we now handle these following events: 
       const { 
         CONFERENCE_JOINED,
@@ -115,78 +117,84 @@ export default {
         TRACK_MUTE_CHANGED,
         USER_LEFT } = JitsiMeetJS.events.conference;
 
+      const initUserMetadata = (userID) => {
+        this.$set(this.isUserMutedMap, userID, false);
+        this.$set(this.isUserCameraOnMap, userID, false);
+        this.$set(this.isUserSharingScreenMap, userID, false); 
+        this.$set(this.remoteTracks, userID, []);
+      }
+
+      const uninitUserMetadata = (userID) => {
+        this.$delete(this.isUserMutedMap, userID); 
+        this.$delete(this.isUserCameraOnMap, userID); 
+        this.$delete(this.isUserSharingScreenMap, userID); 
+        this.$delete(this.remoteTracks, userID);
+      }
+
       this.conferenceRoom.on(CONFERENCE_JOINED, async () => {
-        const myLocalTracks = await JitsiMeetJS.createLocalTracks({ devices: ["audio", "video"] }); 
-        console.log("myLocalTracks =", myLocalTracks); 
+        initUserMetadata(this.myID); 
+        const myLocalTracks = await JitsiMeetJS.createLocalTracks({ devices: ["audio"] }); 
         for (const track of myLocalTracks) {
           this.conferenceRoom.addTrack(track);
           switch (track.getType()) {
             case "audio": 
               this.localMicTrack = track; 
-              this.$set(this.isUserMutedMap, this.myID, track.isMuted()); // TODO: a user could also be muted initially, so the boolean value should not always be false 
+              this.$set(this.isUserMutedMap, this.myID, track.isMuted());
               break; 
             case "video": 
+              // TODO: handle the screen and camera differently
               this.handleMyNewCameraTrack(track); 
               break; 
           }
         }
       });
-      
+    
       this.conferenceRoom.on(TRACK_ADDED, async (track) => {
-        console.log("new track, type =", track.getType());
-        if (track.isLocal()) { // TODO: re-write: participantID = myUserId()
-          console.log("track is from myself =", track);
-          return;
-        }
-        console.log("track is from someone else =", track);
-
-        // step 1/3: mount to DOM (TODO: use a switch statement?)
-        const participantID = track.getParticipantId();
-        const trackID = participantID + track.getType();
+        if (track.isLocal()) return; // TODO: re-write: participantID = myUserId()
+        
+        const userID = track.getParticipantId(); 
+        const trackID = userID + track.getType();
         if (track.getType() === 'video') {
           $("#remoteVideoTracks").append(`<video autoplay="true" id="${trackID}" style="width: 300px; height: 300px"/>`);
+          this.$set(this.isUserCameraOnMap, userID, true); 
         } else {
           $("#remoteAudioTracks").append(`<audio autoplay="true" id="${trackID}"/>`);
+          this.$set(this.isUserMutedMap, userID, track.isMuted()); // unlike video, an added audio track can be muted/unmuted
         }
-
-        // step 2/3: attach the stream/track
         track.attach($(`#${trackID}`)[0]);
-
-        // step 3/3: maintain the rep invariant
-        if (!this.remoteTracks[participantID]) {
-          this.$set(this.remoteTracks, participantID, []);
-        }
-        this.remoteTracks[participantID].push(track); // WARNING: this operation is probably undetectable and therefore unreactive
+        this.remoteTracks[userID].push(track);  // WARNING: if USER_JOINED is not always executed before TRACK_ADDED, then remoteTracks[userID] can be undefined.
+                                                // Moreover, this operation is probabably not reactive. 
       });
 
       // tracks can be removed even if the user didn't leave. 
-      // For example, a screen-share session can be turned on and off.
+      // For example, the user can toggle their camera/screen on/off
       this.conferenceRoom.on(TRACK_REMOVED, (track) => {
+        if (track.isLocal()) return; 
+
         const htmlElement = document.getElementById(track.getParticipantId() + track.getType());
-        if (htmlElement) htmlElement.remove(); 
+        if (htmlElement) htmlElement.remove();  
+        if (track.getType() === "video") {
+          // TODO: handle the difference between the screen and the video
+          this.$set(this.isUserCameraOnMap, track.getParticipantId(), false); 
+        }
+        // note that there is no need to handle audio because that means the user left the conference altogether,
+        // so the metadata will be already handled by "USER_LEFT"  
       })
 
       // note USER_JOINED is only fired for other users and not ourselves
       this.conferenceRoom.on(USER_JOINED, (userID) => { 
-        this.$set(this.isUserMutedMap, userID, false);
-        this.$set(this.remoteTracks, userID, []);
+        initUserMetadata(userID); 
       });
 
-      this.conferenceRoom.on(USER_LEFT, (userID) => {
-        // maintain the rep invariant
-        delete this.isUserMutedMap[userID]; 
-        
-        // clean up the tracks he/she shared
-        // TODO: also remove the <p> tags with the labels, otherwise the UI looks like it didn't update correctly
-        // FIXME: the detach() function throws errors, potentially related to https://github.com/jitsi/lib-jitsi-meet/issues/859
-        
-        // temporarily comment out for debugging purposes
+      this.conferenceRoom.on(USER_LEFT, (userID) => {        
         for (const track of this.remoteTracks[userID]) {
-          console.log(`removing ${this.remoteTracks[userID].length} tracks`);
           const htmlElement = document.getElementById(userID + track.getType());
-          track.detach(htmlElement); // `detach` the data stream/track i.e. the src attribute 
-          htmlElement.remove(); // remove the element itself
-        }
+          if (htmlElement) {
+            track.detach(htmlElement); // `detach` the data stream/track i.e. can think of it *like* a `src` attribute 
+            htmlElement.remove(); // remove the element itself
+          }
+        } 
+        uninitUserMetaData(userID); 
       });
 
       this.conferenceRoom.on(DOMINANT_SPEAKER_CHANGED, (userID) => 
@@ -222,35 +230,10 @@ export default {
         this.handleMyNewCameraTrack(cameraTrack);
       } 
       else {
-        // there remains two possibilities that explains why the initial connection works but the subsequent connections don't worok
-        // possibility 1: when I toggle off the camera, I did not successfully reset everything and am missing something key (no because it succesfully resets for screen-sharing which uses the same reset logic)
-        // possibility 2: if the camera is shared later, it is somehow corrupt (I think it's just somehow corrupt when it's obtained later)
-
-        // if it's possibility 1, then it's more my fault. 
-        // if it's possibility 2, then it's more Jitsi's fault
-
-        // WHY IS THE CAMERA LIGHT STILL ON EVEN THOUGH I ALREADY DISPOSED THE TRACK?
-        // #1 I need to stop the track 
-        // #2 maybe I have to reste the pointer for the localCameraTrack
-
-        // despite that the reset logic works for screenshare, I will try the following to be more sure: 
-        //   ensure dispose() finishes executing before .remove(); (known because of the camera light effect)
-        //   removing the pointer
-
-
-        // CLUE #3 
-        // when there is no user, it gives new information
-        // when more things happen unexpectedly, it's giving you more information. That is why it's good when things are breaking.
-        // when there is a third tab, then even the initial connection fails. I suspect that says something about the DOM.
-
-        // CLUE #4 with 4 tabs, what it that happens? Tab 1 and Tab both only see two remote tracks, whereas Tab 3 sees all the tracks
-        // it also seems that when the 3rd tab succesfully joins, it replaces the second video remote feed of tab 2 (which used to be tab 1)
-        console.log("before dispose, localCameraTrack =", this.localCameraTrack);
         await this.localCameraTrack.dispose(); 
-        $("#myLocalCameraTrack").remove(); 
+        $("#myLocalCameraTrack").remove(); // NOTE: if .remove() is called before .dispose() resolves, then the camera light remains on
         this.localCameraTrack = null; 
-        console.log("after dispose, localCameraTrack =", this.localCameraTrack);
-        this.isUserCameraOnMap[this.myID] = false; 
+        this.$set(this.isUserCameraOnMap, this.myID, false); 
       }
     },
     handleMyNewCameraTrack (cameraTrack) {
@@ -269,8 +252,9 @@ export default {
          const [ screenTrack ] = await JitsiMeetJS.createLocalTracks({
           devices: ["desktop"]
         });
-        $("#remoteVideoTracks").append(`
-          <video autoplay="true" id="myLocalScreen" style="height: 200px; width: 400px;"/> 
+
+        $("#myLocalTracks").append(`
+          <video autoplay="true" id="myLocalScreen" style="height: 300px; width: 300px;"/> 
         `); 
         screenTrack.attach($("#myLocalScreen")[0]);
         this.conferenceRoom.addTrack(screenTrack); 
@@ -280,17 +264,11 @@ export default {
         this.localScreenTrack = screenTrack; 
       }
       else {
+        await this.localScreenTrack.dispose(); 
         $("#myLocalScreen").remove(); 
-        this.localScreenTrack.dispose(); 
-        this.isUserSharingScreenMap[this.myID] = false; 
+        this.localScreenTrack = null; 
+        this.$set(this.isUserSharingScreenMap, this.myID, false); 
       }
-    },
-    onDisconnect () {
-      console.log("onDisconnect()");
-      const { CONNECTION_ESTABLISHED, CONNECTION_FAILED, CONNECTION_DISCONNECTED } = JitsiMeetJS.events.connection; 
-      this.jitsiConnector.removeEventListener(CONNECTION_ESTABLISHED, this.onConnectionSuccess);
-      this.jitsiConnector.removeEventListener(CONNECTION_FAILED, this.onConnectionFailed);
-      this.jitsiConnector.removeEventListener(CONNECTION_DISCONNECTED, this.onDisconnect);
     },
     unload () {
       this.disposeTracksAndDisconnectFromConference();
@@ -300,10 +278,6 @@ export default {
       if (this.localCameraTrack) this.localCameraTrack.dispose(); 
       this.conferenceRoom.leave();
       this.jitsiConnector.disconnect();
-    },
-    // TODO: display an error popup message
-    onConnectionFailed (e) {
-      console.error("Connection Failed e =", e);
     }
   }
 };
