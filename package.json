@@ -10,6 +10,7 @@
     "core-js": "^3.6.5",
     "vue": "^2.6.11",
     "vue-router": "^3.2.0",
+    "lib-jitsi-meet": "github:jitsi/lib-jitsi-meet#3ed4e3caeeaba37f8eae6854b1b7dc9c334adba7",
     "@jitsi/js-utils": "1.0.2",
     "@jitsi/sdp-interop": "1.0.3",
     "@jitsi/sdp-simulcast": "0.4.0",
