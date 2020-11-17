@@ -1,5 +1,8 @@
 # jitsi-vue-experiment
 
+## Documentation
+I wrote everything I learnt on this [Google Doc](https://docs.google.com/document/d/1BrQjNCPkS7t1hrRMuBBsU8ElTsNKDVpKwbV5dUygaz8/edit#heading=h.zbfisml1i9mp)
+
 ## How to run code locally
 ```
 # step 1/3: copy app files into your laptop
